@@ -1,16 +1,13 @@
 --https://github.com/abalabahaha/eris/blob/master/examples/basicCommands.js
 --https://abal.moe/Eris/docs/Command
 local Data = {aliases={},cooldowns={}}
-local bot
 local Command = {commands={}}
 Command.__index = Command
 
 local Subcommand = {} --TODO
 Subcommand.__index = Subcommand
 
-local function start(client,options)
-	assert(client,"Must provide a valid client to the command framework!")
-	bot = client
+local function start(options)
 	options = options or {}
 	for i,v in pairs(options) do
 		Data[i] = v
@@ -20,9 +17,25 @@ local function start(client,options)
 				description = "Shows commands and command usage.",
 				fullDescription = "Shows commands and command usage (such as this one).",
 				usage = "<command name>",
-				cooldown = 5
 			})
 	end
+	pcall(function()
+		local walk = require("luvit-walk")
+		if walk and Data.commandDir then walk = walk.readdirRecursive 
+			walk(Data.commandDir, function(k, files) 
+				for i,v in pairs(files) do
+					if v:match(".lua") then
+						local cmdName = v:sub(2):match("([^/]-)%..-$")
+						local perms, func
+						local success, err = pcall(function() perms,func = dofile(v) end)
+						if success then
+							Command:registerCommand(cmdName,func,perms)
+						end
+					end
+				end
+			end)
+		end
+	end)
 	return Command
 end
 function Command:registerCommand(label,func,options)
@@ -31,8 +44,8 @@ function Command:registerCommand(label,func,options)
 	local mt = setmetatable({
 		label = label,
 		func = func,
-		options = options,
-		subcommands = {}
+		options = options or {},
+		subcommands = {},
 	},Command)
 	Command.commands[label] = mt
 	options = options or {}
@@ -43,14 +56,18 @@ function Command:registerCommand(label,func,options)
 	return mt
 end
 
-function helpFunction(message,args,joined)
+function helpFunction(data)
+	local message,joined,args = data.message,data.joined,data.args
 	local author = message.author
 	local categories = {}
 	local embed
+	local bot = message.guild.me
+	if not bot then return end
+	bot = bot._parent._parent
 	if args[1] then
 		local cmdName = args[1]
 		local command = Command.commands[cmdName]
-		if command then
+		if command and not command.options.hidden then
 			command.options = command.options or {}
 			embed = {
 				title = cmdName,
@@ -96,20 +113,22 @@ function helpFunction(message,args,joined)
 			fields = {}	
 		}
 		for i,v in pairs(Command.commands) do
-			local options = v.options or {}
-			local category = options.category or "Misc"
-			categories[category] = categories[category] or {}
-			local desc = message.prefix..v.label
-			if options.description then
-				desc = desc.." — "..options.description
-			end
-			for l,k in pairs(v.subcommands) do
-				desc = desc.."\n	"..message.prefix..i.." "..l
-				if k.options and k.options.description then
-					desc = desc.." — "..k.options.description
+			if not v.options.hidden then
+				local options = v.options or {}
+				local category = options.category or "Misc"
+				categories[category] = categories[category] or {}
+				local desc = message.prefix..v.label
+				if options.description then
+					desc = desc.." — "..options.description
 				end
+				for l,k in pairs(v.subcommands) do
+					desc = desc.."\n	"..message.prefix..i.." "..l
+					if k.options and k.options.description then
+						desc = desc.." — "..k.options.description
+					end
+				end
+				table.insert(categories[category],desc)
 			end
-			table.insert(categories[category],desc)
 		end
 		for i,v in pairs(categories) do
 			table.insert(embed.fields,{
@@ -118,9 +137,9 @@ function helpFunction(message,args,joined)
 				inline = false
 			})
 		end
-	bot._api:createMessage(message.channel.id, {
-		content = "", embed = embed
-	})
+		bot._api:createMessage(message.channel.id, {
+			content = "", embed = embed
+		})
 	end
 end
 
@@ -129,11 +148,13 @@ function Command:registerCommandAlias(alias)
 end
 
 function Command:newMsg(message)
+	local bot = message.guild.me
+	if not bot then return end
 	local member = message.member
 	local author = message.author
 	local content = message.content
 	local channel = message.channel
-	local function isAllowed(options)
+	local function isAllowed(options,joined)
 		local isCoolDown = Data.cooldowns[author.id]
 		options = options or {}
 		local caseInsensitive = options.caseInsensitive or false
@@ -157,6 +178,7 @@ function Command:newMsg(message)
 		if isCoolDown and isCoolDown > os.time() then channel:sendMessage(cooldownMessage) return false end
 		if argsRequired then
 			if #joined == 0 then
+				channel:sendMessage("Arguments are required for this command.")
 				return
 			end
 		end
@@ -216,10 +238,19 @@ function Command:newMsg(message)
 			end
 		end
 		if not command then return end
-		if not isAllowed(command.options) then return end
-		local res = command.func(message,joined,args)
-		if res and type(res) == "string" then
+		if not isAllowed(command.options,joined) then return end
+		local res
+		local success,err = pcall(function()
+			res = command.func{command = command,message=message,joined=joined,args=args}
+		end)
+		if success and res and type(res) == "string" then
 			channel:sendMessage(res)
+		elseif not success and err then
+			local filepath,num,msg = err:match('(.*):(.*):(.*)')
+			if msg then
+				msg = msg:sub(2)
+			end
+			channel:sendMessage((Data.errorMsg or "**Error:** ")..msg)
 		end
 		return args,joined,command
 	end
@@ -261,6 +292,8 @@ setmetatable(Subcommand,{
 			options = options
     },self)
 end})
+
+
 
 
 return start
