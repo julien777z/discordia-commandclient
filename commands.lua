@@ -150,8 +150,7 @@ function Command:registerCommandAlias(alias)
 end
 
 function Command:newMsg(message)
-	local bot = message.guild.me
-	if not bot then return end
+	local bot = message.client
 	local member = message.member
 	local author = message.author
 	local content = message.content
@@ -218,7 +217,7 @@ function Command:newMsg(message)
 			end
 		end
 		message.prefix = beginning
-		message.bot = bot._parent._parent
+		message.bot = bot
 		if not command then return end
 		local skip = nil
 		for i,v in pairs(Data.aliases) do
@@ -244,7 +243,7 @@ function Command:newMsg(message)
 		if not isAllowed(command.options,joined) then return end
 		local res
 		local success,err = pcall(function()
-			res = command.func{command = command,message=message,joined=args,args=joined,bot = message.bot,me = message.me}
+			res = command.func{command = command,message=message,joined=args,args=joined,bot = message.bot,me = (message.guild and message.guild.me),channel = channel,guild = message.guild}
 		end)
 		if success and res then
 			if Data.successMsg then
