@@ -218,6 +218,7 @@ function Command:newMsg(message)
 			end
 		end
 		message.prefix = beginning
+		message.bot = bot._parent._parent
 		if not command then return end
 		local skip = nil
 		for i,v in pairs(Data.aliases) do
@@ -243,16 +244,39 @@ function Command:newMsg(message)
 		if not isAllowed(command.options,joined) then return end
 		local res
 		local success,err = pcall(function()
-			res = command.func{command = command,message=message,joined=args,args=joined}
+			res = command.func{command = command,message=message,joined=args,args=joined,bot = message.bot,me = message.me}
 		end)
-		if success and res and type(res) == "string" then
-			channel:sendMessage(res)
+		if success and res then
+			if Data.successMsg then
+				if type(Data.successMsg) == "function" then
+					res1 = Data.successMsg(res,message)
+					if res1 then
+						channel:sendMessage(res1)
+					end
+				elseif type(Data.successMsg) == "string" then
+					channel:sendMessage(Data.successMsg..res)
+				else
+					channel:sendMessage(res)
+				end
+			else
+				channel:sendMessage(res)
+			end
 		elseif not success and err then
+			res = nil
 			local filepath,num,msg = err:match('(.*):(.*):(.*)')
 			if msg then
 				msg = msg:sub(2)
 			end
-			channel:sendMessage((Data.errorMsg or "**Error:** ")..msg)
+			if type(Data.errorMsg) == "function" then
+				res = Data.errorMsg(msg,message)
+				if res then
+					channel:sendMessage(res)
+				end
+			elseif type(Data.errorMsg) == "string" then
+				channel:sendMessage(Data.errorMsg..msg)
+			else
+				channel:sendMessage("**Error:** "..msg)
+			end
 		end
 		return args,joined,command
 	end
