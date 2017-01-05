@@ -14,8 +14,8 @@ local function start(options)
 	end
 	if not options.customHelp then
 		Command:registerCommand("help",helpFunction,{
-				description = "Shows commands and command usage.",
-				fullDescription = "Shows commands and command usage (such as this one).",
+				description = "shows commands and command usage.",
+				fullDescription = "shows commands and command usage (such as this one).",
 				usage = "<command name>",
 			})
 	end
@@ -30,6 +30,8 @@ local function start(options)
 						local success, err = pcall(function() perms,func = dofile(v) end)
 						if success then
 							Command:registerCommand(cmdName,func,perms)
+						else
+							p("Command error for "..cmdName..": "..err)
 						end
 					end
 				end
@@ -227,7 +229,7 @@ function Command:newMsg(message)
 		end
 		if not skip then
 			command = Command.commands[command]
-			if joined[1] then
+			if command and joined[1] then
 				for l,k in pairs(command.subcommands) do
 					if l == joined[1] then
 						command = k
@@ -241,7 +243,7 @@ function Command:newMsg(message)
 		if not isAllowed(command.options,joined) then return end
 		local res
 		local success,err = pcall(function()
-			res = command.func{command = command,message=message,joined=joined,args=args}
+			res = command.func{command = command,message=message,joined=args,args=joined}
 		end)
 		if success and res and type(res) == "string" then
 			channel:sendMessage(res)
