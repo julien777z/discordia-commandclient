@@ -9,9 +9,9 @@ Then, pass a configuration table like this:
 local command = require("./commands.lua"){
 		prefix = "!", --string or a table of prefixes
 		owner = "Your username",
-		description = "My amazing bot",
+		description = "My amazing bot"
 	
-	}
+}
   ```
   Supported options:
   
