@@ -23,7 +23,7 @@ local command = require("./commands.lua"){
 | yieldError | When enabled, if a command doesn't get executed, the code below the sendMsg function will not run.| false |
 | customHelp | If enabled, this will disable the default help command. | false |
 | errorMsg | If set to a string, the text will show when a command errors, followed by the error message. If you set a function, the first arg is the error msg, the second arg is the message. | **Error:** |
-| successMsg | Similar to errorMsg, except with all other messages |
+| successMsg | Similar to errorMsg, except with all other messages | text |
 | commandDir | If set, the script will look in this directory for command files. | nil |
 
 
