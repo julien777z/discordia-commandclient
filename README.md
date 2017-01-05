@@ -22,7 +22,8 @@ local command = require("./commands.lua"){
 | description | Sets the description of your bot in the help menu | My amazing bot |
 | yieldError | When enabled, if a command doesn't get executed, the code below the sendMsg function will not run.| false |
 | customHelp | If enabled, this will disable the default help command. | false |
-| errorMsg | If set, when a command errors, this message will show instead. | **Error:** |
+| errorMsg | If set to a string, the text will show when a command errors, followed by the error message. If you set a function, the first arg is the error msg, the second arg is the message. | **Error:** |
+| successMsg | Similar to errorMsg, except with all other messages |
 | commandDir | If set, the script will look in this directory for command files. | nil |
 
 
@@ -74,5 +75,27 @@ end
 ```
 Congrats! You made your first modulated command.
 
-## Error handling
+## Error/success handling
 If you want to use the errorMsg option efficiently, if anywhere in the command file it error(string)s, the bot will show the error message.
+
+If you put a function in for successMsg/errorMsg, the framework will execute the function and pass the text as arg 1 and the message as arg 2. If anything is returned from the function, that returned value will display. If you put a string instead, the string will be displayed, followed by the text.
+
+Example 1:
+```lua
+{
+errorMsg = function(error,message)
+	return "**Error**: "..error
+end,
+successMsg = function(text,message)
+	return text
+end
+}
+```
+Example 2:
+```lua
+{
+errorMsg = "**Error:** ",
+successMsg = ""
+}
+```
+Both examples will produce the same result.
