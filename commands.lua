@@ -1,11 +1,18 @@
 --https://github.com/abalabahaha/eris/blob/master/examples/basicCommands.js
 --https://abal.moe/Eris/docs/Command
 local Data = {aliases={},cooldowns={}}
+local newCommandData = {
+	sendEmbed = function(...)
+		sendEmbed()
+	end
+}
 local Command = {commands={}}
 Command.__index = Command
 
 local Subcommand = {} --TODO
 Subcommand.__index = Subcommand
+
+local Permissions = {}
 
 local function start(options)
 	options = options or {}
@@ -26,10 +33,15 @@ local function start(options)
 				for i,v in pairs(files) do
 					if v:match(".lua") then
 						local cmdName = v:sub(2):match("([^/]-)%..-$")
-						local perms, func
-						local success, err = pcall(function() perms,func = dofile(v) end)
+						local perms, func, subcommands
+						local success, err = pcall(function() perms,func,subcommands = dofile(v) end)
 						if success then
-							Command:registerCommand(cmdName,func,perms)
+							local command = Command:registerCommand(cmdName,func,perms)
+							if type(subcommands) == "table" then
+								for l,k in pairs(subcommands) do
+									command:registerSubcommand(k[1], k[3], k[2])
+								end
+							end
 						else
 							p("Command error for "..cmdName..": "..err)
 						end
@@ -42,7 +54,7 @@ local function start(options)
 end
 function Command:registerCommand(label,func,options)
 	assert(label,"Command label cannot be blank!")
-	assert(func,"Command must have a function attached!")
+	assert(func,label.." must have a function attached!")
 	local mt = setmetatable({
 		label = label,
 		func = func,
@@ -63,9 +75,7 @@ function helpFunction(data)
 	local author = message.author
 	local categories = {}
 	local embed
-	local bot = message.guild.me
-	if not bot then return end
-	bot = bot._parent._parent
+	local bot = data.bot
 	if args[1] then
 		local cmdName = args[1]
 		local command = Command.commands[cmdName]
@@ -74,7 +84,7 @@ function helpFunction(data)
 			embed = {
 				title = cmdName,
 				description = command.options.fullDescription or command.options.description or "N/A",
-				fields = {{name="Category",value=command.options.category or "Misc"},{name="Usage",value=command.options.usage or "N/A"}}
+				fields = {{name="Category",value=command.options.category or "Miscellaneous"},{name="Usage",value=(command.options.usage and message.prefix..command.options.usage) or "N/A"}}
 			}
 			local tab = {}
 			for i,v in pairs(command.subcommands) do
@@ -100,16 +110,18 @@ function helpFunction(data)
 			else
 				table.insert(embed.fields,{name="Aliases",value=table.concat(tab,"\n"),inline=false})
 			end
-			bot._api:createMessage(message.channel.id, {
-				content = "", embed = embed
-			})
+			message.channel:sendMessage{
+				content="",
+				embed = embed
+			}
 		else
-			message.channel:sendMessage("Could not find the command.")
+			message.channel:sendMessage{content="Could not find the command."}
 			return
 		end
 	else
 		embed = {
-			author = {name="Commands",icon_url=bot.user.avatarUrl},
+			author = {name="Commands"},
+			thumbnail = {url=bot.user.avatarUrl},
 			title = (Data.title or bot.user.username)..(Data.owner and " by "..Data.owner or ""),
 			description = Data.description or "My amazing bot",
 			fields = {}	
@@ -117,7 +129,7 @@ function helpFunction(data)
 		for i,v in pairs(Command.commands) do
 			if not v.options.hidden then
 				local options = v.options or {}
-				local category = options.category or "Misc"
+				local category = options.category or "Miscellaneous"
 				categories[category] = categories[category] or {}
 				local desc = message.prefix..v.label
 				if options.description then
@@ -139,9 +151,18 @@ function helpFunction(data)
 				inline = false
 			})
 		end
-		bot._api:createMessage(message.channel.id, {
-			content = "", embed = embed
-		})
+		local res = data.author:sendMessage{
+			content="",
+			embed = embed
+		}
+		if not res then
+			data.channel:sendMessage{
+				content="",
+				embed = embed
+			}
+		else
+			return "I've sent you a list of my commands via DM."
+		end
 	end
 end
 
@@ -154,6 +175,7 @@ function Command:newMsg(message)
 	local member = message.member
 	local author = message.author
 	local content = message.content
+	local guild = message.guild
 	local channel = message.channel
 	local function isAllowed(options,joined)
 		local isCoolDown = Data.cooldowns[author.id]
@@ -179,32 +201,37 @@ function Command:newMsg(message)
 		if isCoolDown and isCoolDown > os.time() then channel:sendMessage(cooldownMessage) return false end
 		if argsRequired then
 			if #joined == 0 then
-				channel:sendMessage("Arguments are required for this command.")
+				channel:sendMessage{content="Arguments are required for this command."}
+				message:addReaction("⛔")
 				return
 			end
 		end
 		if guildOnly then
-			if not message.guild then return end
+			if not message.guild then message:addReaction("⛔") return end
 		end
 		if dmOnly then
-			if message.guild then return end
+			if message.guild then message:addReaction("⛔") return end
 		end
 		for i,v in pairs(requirements.userIDs) do
-			if v ~= author.id then channel:sendMessage(permissionMessage) return false end
+			if v ~= author.id then channel:sendMessage{content=permissionMessage} message:addReaction("⛔") return false end
 		end
 		for i,v in pairs(requirements.roleIDs) do
-			if not member:getRole(v) then channel:sendMessage(permissionMessage) return false end
+			if not member:getRole(v) then channel:sendMessage{content=permissionMessage}  message:addReaction("⛔") return false end
 		end
 		for i,v in pairs(requirements.roleNames) do
-			if not member:getRole("name",v) then channel:sendMessage(permissionMessage) return false end
+			if not member:getRole("name",v) then channel:sendMessage{content=permissionMessage} message:addReaction("⛔") return false end
 		end
-		for i,v in pairs(requirements.permissions) do
-			--TODO
+		if member and member.guild then
+			if not Permissions:hasPermission(member,requirements.permissions) then
+				message:addReaction("⛔")
+				channel:sendMessage("You're missing some permission flags which are needed for the command.")
+				return
+			end
 		end
 		Data.cooldowns[author.id] = os.time() + cooldown
 		return true
 	end
-	local function execute(beginning)
+	local function execute(beginning,isSubCommand)
 		local rest = content:sub(beginning:len()+1)
 		local command,args = string.match(rest, '(%S+) (.*)')
 		if not args then args = rest command = rest end
@@ -232,6 +259,8 @@ function Command:newMsg(message)
 			if command and joined[1] then
 				for l,k in pairs(command.subcommands) do
 					if l == joined[1] then
+						--joined[1] = nil
+						args = args:sub(l:len()+1)
 						command = k
 						skip = true
 						break
@@ -243,25 +272,29 @@ function Command:newMsg(message)
 		if not isAllowed(command.options,joined) then return end
 		local res
 		local success,err = pcall(function()
-			res = command.func{command = command,message=message,joined=args,args=joined,bot = message.bot,me = (message.guild and message.guild.me),channel = channel,guild = message.guild}
+			local data = {command = command,message=message,joined=args,args=joined,bot = message.bot,me = (message.guild and message.guild.me),channel = channel,guild = message.guild,author = message.author,member = message.member}
+			res = command.func(data)
+			bot.modules.notifications:newCommand(guild,author,command.label,args)
 		end)
 		if success and res then
 			if Data.successMsg then
 				if type(Data.successMsg) == "function" then
 					res1 = Data.successMsg(res,message)
 					if res1 then
-						channel:sendMessage(res1)
+						channel:sendMessage{content=res1}
 					end
 				elseif type(Data.successMsg) == "string" then
-					channel:sendMessage(Data.successMsg..res)
+					channel:sendMessage{content=Data.successMsg..res}
 				else
-					channel:sendMessage(res)
+					channel:sendMessage{content=res}
 				end
 			else
-				channel:sendMessage(res)
+				channel:sendMessage{content=res}
 			end
 		elseif not success and err then
 			res = nil
+			p(err)
+			bot.modules.notifications:commandError(guild,author,err,command.label,args)
 			local filepath,num,msg = err:match('(.*):(.*):(.*)')
 			if msg then
 				msg = msg:sub(2)
@@ -269,12 +302,12 @@ function Command:newMsg(message)
 			if type(Data.errorMsg) == "function" then
 				res = Data.errorMsg(msg,message)
 				if res then
-					channel:sendMessage(res)
+					channel:sendMessage{content=res}
 				end
 			elseif type(Data.errorMsg) == "string" then
-				channel:sendMessage(Data.errorMsg..msg)
+				channel:sendMessage{content=Data.errorMsg..msg}
 			else
-				channel:sendMessage("**Error:** "..msg)
+				channel:sendMessage{content="**Error:** "..msg}
 			end
 		end
 		return args,joined,command
@@ -319,6 +352,79 @@ setmetatable(Subcommand,{
 end})
 
 
+local flags = {
+	createInstantInvite	= 0x00000001, -- general
+	kickMembers			= 0x00000002, -- general
+	banMembers			= 0x00000004, -- general
+	administrator		= 0x00000008, -- general
+	manageChannels		= 0x00000010, -- general
+	manageGuild			= 0x00000020, -- general
+	addReactions		= 0x00000040, -- text
+	readMessages		= 0x00000400, -- text
+	sendMessages		= 0x00000800, -- text
+	sendTextToSpeech	= 0x00001000, -- text
+	manageMessages		= 0x00002000, -- text
+	embedLinks			= 0x00004000, -- text
+	attachFiles			= 0x00008000, -- text
+	readMessageHistory	= 0x00010000, -- text
+	mentionEveryone		= 0x00020000, -- text
+	useExternalEmojis	= 0x00040000, -- text
+	connect				= 0x00100000, -- voice
+	speak				= 0x00200000, -- voice
+	muteMembers			= 0x00400000, -- voice
+	deafenMembers		= 0x00800000, -- voice
+	moveMembers			= 0x01000000, -- voice
+	useVoiceActivity	= 0x02000000, -- voice
+	changeNickname		= 0x04000000, -- general
+	manageNicknames		= 0x08000000, -- general
+	manageRoles			= 0x10000000, -- general
+	manageWebhooks		= 0x20000000, -- general
+	manageEmojis		= 0x40000000, -- general
+}
+
+function Permissions:getPermissionName(level)
+	for i,v in pairs(Permissions.levels) do
+		if v == level then
+			return i
+		end
+	end
+end
+
+function Permissions:hasPermission(user,...)
+	local permissions = {}
+	local tuple = {...}
+	local defaultRole = user.guild.defaultRole
+	for role in user.roles do	
+		for i,v in pairs(flags) do
+			if role.permissions:has(i) or defaultRole.permissions:has(i) or role.permissions:has("administrator")  then
+				permissions[i] = i
+			end
+		end
+	end
+	if type(...) == "table" then
+		for i,v in pairs(...) do
+			if not permissions[v] and not defaultRole.permissions:has(v) then
+				return false
+			end
+		end
+	end
+	return true
+end
+
+function Command:sendEmbed(data,content,embed)
+	local isAllowed = Permissions:hasPermission(data.me,"embedLinks")
+	if not isAllowed then
+		local newContent = {}
+		for i,v in pairs(embed.fields) do
+			table.insert(newContent,v.name.."\n"..v.value)
+		end
+		embed = nil
+		content = content.."```fix"..table.concat(newContent,"\n\n").."```"
+	end
+	data.bot._api:createMessage(data.channel.id, {
+		content = content, embed = embed
+	})
+end
 
 
 return start
