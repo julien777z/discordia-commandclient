@@ -274,7 +274,6 @@ function Command:newMsg(message)
 		local success,err = pcall(function()
 			local data = {command = command,message=message,joined=args,args=joined,bot = message.bot,me = (message.guild and message.guild.me),channel = channel,guild = message.guild,author = message.author,member = message.member}
 			res = command.func(data)
-			bot.modules.notifications:newCommand(guild,author,command.label,args)
 		end)
 		if success and res then
 			if Data.successMsg then
@@ -294,7 +293,6 @@ function Command:newMsg(message)
 		elseif not success and err then
 			res = nil
 			p(err)
-			bot.modules.notifications:commandError(guild,author,err,command.label,args)
 			local filepath,num,msg = err:match('(.*):(.*):(.*)')
 			if msg then
 				msg = msg:sub(2)
